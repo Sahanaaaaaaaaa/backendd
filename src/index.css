@@ -1,0 +1,29 @@
+body {
+  margin: 0;
+  font-family: Arial, sans-serif;
+}
+
+nav {
+  position: fixed;
+  top: 0;
+  width: 100%;
+  z-index: 1100;
+}
+
+nav h1 {
+  margin: 0;
+}
+
+.drawer-open {
+  width: 240px;
+  transition: width 0.3s;
+}
+
+.drawer-closed {
+  width: 0;
+  transition: width 0.3s;
+}
+
+main {
+  margin-top: 60px; /* Space for the navbar */
+}
