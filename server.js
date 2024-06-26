@@ -1,9 +1,10 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
+const WebSocket = require('ws');
+const path = require('path');
 const { exec } = require('child_process');
 const fs = require('fs');
-const path = require('path');
 
 const app = express();
 app.use(cors());
@@ -28,10 +29,7 @@ const User = mongoose.model('User', userSchema);
 
 const csrSchema = new mongoose.Schema({
   username: { type: String, required: true },
-  csrPath: { type: String, required: true },
-  keyPath: { type: String, required: true },
-  certPath: { type: String },
-  organization: { type: String, default: "PES University"},
+  organization: { type: String, default: "PES University" },
   signingCA: { type: String },
   expiryDate: { type: Date },
   status: { type: String, default: 'Pending' },
@@ -40,36 +38,46 @@ const csrSchema = new mongoose.Schema({
 const CSR = mongoose.model('CSR', csrSchema);
 
 const createCSR = async (username, organization, subscriptionDays) => {
-  const csrPath = path.join(__dirname, 'certs', `${username}.csr`);
-  const keyPath = path.join(__dirname, 'certs', `${username}.key`);
-
   const expiryDate = new Date();
   expiryDate.setDate(expiryDate.getDate() + subscriptionDays);
 
-  const csrCommand = `
-    openssl req -new -newkey rsa:2048 -nodes -keyout ${keyPath} -out ${csrPath} -subj "/C=US/ST=State/L=City/O=Organization/OU=Unit/CN=${username}"
-  `;
+  const newCSR = new CSR({ username, expiryDate });
+  await newCSR.save();
 
-  exec(csrCommand, async (error, stdout, stderr) => {
-    if (error) {
-      console.error(`Error creating CSR for ${username}:`, error);
-      return;
+  // Notify all connected clients about the new CSR
+  wss.clients.forEach(client => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(JSON.stringify({ type: 'newCSR', csr: newCSR }));
     }
-    console.log(`CSR created for ${username}:\n`, stdout);
-
-    const newCSR = new CSR({ username, csrPath, keyPath, expiryDate });
-    await newCSR.save();
   });
 };
 
-// Check for new users becoming paid
-User.watch().on('change', async (change) => {
-  if (change.operationType === 'update' && change.updateDescription.updatedFields.isPaid === true) {
-    const user = await User.findById(change.documentKey._id);
-    if (user) {
-      const subscriptionDays = user.SubscriptionDays; // Get SubscriptionDays value from the user
-      createCSR(user.username, 'Organization Name', subscriptionDays);
-    }
+// WebSocket Server
+const server = app.listen(5000, () => {
+  console.log('Server is running on port 5000');
+});
+
+const wss = new WebSocket.Server({ server });
+
+wss.on('connection', (ws) => {
+  console.log('WebSocket client connected');
+
+  ws.on('close', () => {
+    console.log('WebSocket client disconnected');
+  });
+});
+
+// Watch for new entries in the 'csr_info' collection
+const csrCollection = mongoose.connection.collection('csr_info');
+csrCollection.watch().on('change', async (change) => {
+  if (change.operationType === 'insert') {
+    const newCSR = change.fullDocument;
+    // Notify all connected clients about the new CSR
+    wss.clients.forEach(client => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(JSON.stringify({ type: 'newCSR', csr: newCSR }));
+      }
+    });
   }
 });
 
@@ -89,7 +97,7 @@ app.post('/login', async (req, res) => {
 });
 
 app.post('/register', async (req, res) => {
-  const { d_username, d_password } = req.body; // Remove SubscriptionDays from the request body
+  const { d_username, d_password } = req.body;
   try {
     const existingUser = await User.findOne({ d_username });
     if (existingUser) {
@@ -104,7 +112,6 @@ app.post('/register', async (req, res) => {
     res.status(500).json({ message: 'Internal server error' });
   }
 });
-
 
 app.get('/csrs', async (req, res) => {
   try {
@@ -190,3 +197,5 @@ const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
+
+module.exports = { app };

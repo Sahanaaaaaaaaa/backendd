@@ -1,25 +1,15 @@
 {
-<<<<<<< HEAD
-  "name": "backend",
-  "version": "1.0.0",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "description": "",
-  "dependencies": {
-    "body-parser": "^1.20.2",
-    "cors": "^2.8.5",
-    "express": "^4.19.2",
-    "mongoose": "^8.4.1"
-=======
-<<<<<<< HEAD
   "name": "admin-dashboard",
   "version": "0.1.0",
   "private": true,
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "react-scripts build",
+    "test": "react-scripts test",
+    "eject": "react-scripts eject",
+    "backend-start": "node backend/index.js",
+    "backend-test": "echo \"Error: no test specified for backend\" && exit 1"
+  },
   "dependencies": {
     "@emotion/react": "^11.11.4",
     "@emotion/styled": "^11.11.5",
@@ -29,32 +19,18 @@
     "@testing-library/react": "^13.4.0",
     "@testing-library/user-event": "^13.5.0",
     "axios": "^1.7.2",
-    "mongoose": "^8.4.1",
+    "body-parser": "^1.20.2",
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "mongoose": "^8.4.4",
+    "path": "^0.12.7",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.23.1",
     "react-scripts": "5.0.1",
     "recharts": "^2.12.7",
-=======
-  "name": "client",
-  "version": "0.1.0",
-  "private": true,
-  "dependencies": {
-    "@testing-library/jest-dom": "^5.17.0",
-    "@testing-library/react": "^13.4.0",
-    "@testing-library/user-event": "^13.5.0",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "react-icons": "^5.2.1",
-    "react-scripts": "^3.0.1",
->>>>>>> f8eca0e42cce5f4930fc799ec6a0aff47294455d
-    "web-vitals": "^2.1.4"
-  },
-  "scripts": {
-    "start": "react-scripts start",
-    "build": "react-scripts build",
-    "test": "react-scripts test",
-    "eject": "react-scripts eject"
+    "web-vitals": "^2.1.4",
+    "ws": "^8.17.1"
   },
   "eslintConfig": {
     "extends": [
@@ -73,6 +49,24 @@
       "last 1 firefox version",
       "last 1 safari version"
     ]
->>>>>>> 93ac51551bf49458ad75fde843e703e27b52b0df
+  },
+  "backend": {
+    "name": "backend",
+    "version": "1.0.0",
+    "main": "index.js",
+    "scripts": {
+      "start": "node index.js",
+      "test": "echo \"Error: no test specified\" && exit 1"
+    },
+    "keywords": [],
+    "author": "",
+    "license": "ISC",
+    "description": "",
+    "dependencies": {
+      "body-parser": "^1.20.2",
+      "cors": "^2.8.5",
+      "express": "^4.19.2",
+      "mongoose": "^8.4.1"
+    }
   }
 }
