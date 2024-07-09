@@ -1,27 +1,35 @@
+
 const { exec } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const express = require('express');
 const router = express.Router();
 const mongoose = require('mongoose');
-const { GridFSBucket, ObjectId } = require('mongodb');  // MongoDB native driver components
+const { GridFSBucket, ObjectId } = require('mongodb');
 
-// Load the Mongoose model
 const CertificateAuthority = require('../models/CertificateAuthority');
+const Certificate = require('../models/Certificate'); // Added this line
 
-// Directory to store CA files
+// Directory to store CA and certificate files
 const caDir = path.join(__dirname, '..', 'ca');
+
+const certDir = path.join(__dirname, '..', 'certs');
+//const certDir = path.join(caDir, 'certs'); // Added this line
 const archiveDir = path.join(caDir, 'archive');
 
 if (!fs.existsSync(caDir)) {
     fs.mkdirSync(caDir);
 }
 
+if (!fs.existsSync(certDir)) {
+    fs.mkdirSync(certDir); // Added this line
+}
+
 if (!fs.existsSync(archiveDir)) {
     fs.mkdirSync(archiveDir);
 }
 
-// Helper function to execute a command and log the results
+
 const executeCommand = (cmd) => {
     return new Promise((resolve, reject) => {
         console.log(`Executing: ${cmd}`);
@@ -37,6 +45,7 @@ const executeCommand = (cmd) => {
     });
 };
 
+
 // Function to archive CA files under the archive directory with common name and original file names
 const archiveCAFiles = async (commonName) => {
     // Create a directory with commonName under archive if it doesn't exist
@@ -45,7 +54,7 @@ const archiveCAFiles = async (commonName) => {
         fs.mkdirSync(archiveCommonDir);
     }
 
-    // Archive CA files under commonName directory with original file names
+    // Archive CA files under commonName directory with corrected file names
     const filesToArchive = ['ca.crt', 'ca.key', 'ca.srl'];
     filesToArchive.forEach((file) => {
         const filePath = path.join(caDir, file);
@@ -57,6 +66,7 @@ const archiveCAFiles = async (commonName) => {
         }
     });
 };
+
 
 // Initialize MongoDB GridFSBucket
 const initGridFS = async () => {
@@ -85,23 +95,59 @@ const uploadFileToGridFS = async (bucket, commonName, fileName) => {
     });
 };
 
-// Function to download file from MongoDB GridFS
-const downloadFileFromGridFS = (bucket, fileId, res) => {
-    const downloadStream = bucket.openDownloadStream(new ObjectId(fileId));
 
-    downloadStream.pipe(res)
-        .on('error', (error) => {
-            console.error(`Error downloading file: ${error}`);
-            res.status(500).send(`Error downloading file: ${error}`);
+    const uploadFileToGridFS2 = async (bucket, commonName, fileName) => {
+        //const filePath = path.join(archiveDir, commonName, fileName);
+        console.log(`archiveDir:${archiveDir}`);
+        console.log(`commonName:${commonName}`);
+        console.log(`fileName:${fileName}`);
+        if (!fs.existsSync(fileName)) {
+            throw new Error(`File not found SLAY: ${issuedCertFilename}`);
+            console.log(`ENDDDDD`);
+        }
+
+        const uploadStream = bucket.openUploadStream(fileName);
+        const fileStream = fs.createReadStream(fileName);
+
+        return new Promise((resolve, reject) => {
+            fileStream.pipe(uploadStream)
+                .on('finish', () => resolve(uploadStream.id))
+                .on('error', (error) => reject(error));
         });
-};
+    };
+    // Function to download file from MongoDB GridFS
+    const downloadFileFromGridFS = (bucket, fileId, res) => {
+        const downloadStream = bucket.openDownloadStream(new ObjectId(fileId));
+
+        downloadStream.pipe(res)
+            .on('error', (error) => {
+                console.error(`Error downloading file: ${error}`);
+                res.status(500).send(`Error downloading file: ${error}`);
+            });
+    };
 
 // Step 1: Generate the Root Certificate and Private Key
-const generateRootCertificate = (commonName) => {
+/* const generateRootCertificate = (commonName) => {
     const cmd = `openssl req -x509 -newkey rsa:2048 -nodes -keyout ${path.join(caDir, 'ca.key')} -out ${path.join(caDir, 'ca.crt')} -days 3650 -subj "/C=US/ST=State/L=Locality/O=Organization/CN=${commonName}"`;
     return executeCommand(cmd);
-};
+}; */
+const generateRootCertificate = async (commonName) => {
+    const privateKeyPath = path.join(caDir, 'ca.key');
+    const certificatePath = path.join(caDir, 'ca.crt');
+    
+    // OpenSSL command to generate the root certificate and private key
+    const cmd = `openssl req -x509 -newkey rsa:2048 -nodes -keyout ${privateKeyPath} -out ${certificatePath} -days 3650 -subj "/C=US/ST=State/L=Locality/O=Organization/CN=${commonName}"`;
 
+    // Execute the command
+    //await executeCommand(cmd);
+
+    // Extract the public key from the generated certificate
+    const extractCmd = `openssl x509 -in ${certificatePath} -noout -pubkey`;
+    const publickey = await executeCommand(extractCmd);
+
+    // Return the public key
+    return publickey;
+};
 // Step 2: Create a Certificate Signing Request (CSR)
 const createCSR = () => {
     const cmd = `openssl req -new -key ${path.join(caDir, 'ca.key')} -out ${path.join(caDir, 'ca.csr')} -subj "/C=US/ST=State/L=Locality/O=Organization/CN=Root CA"`;
@@ -136,7 +182,7 @@ router.post('/add', async (req, res) => {
     try {
         // Generate root certificate and private key
         console.log('Generating root certificate and private key...');
-        await generateRootCertificate(commonName);
+        const publickey = await generateRootCertificate(commonName); // Assuming generateRootCertificate returns the public key
         console.log('Root certificate and private key generated.');
 
         // Create CSR
@@ -169,17 +215,15 @@ router.post('/add', async (req, res) => {
             uploadFileToGridFS(bucket, commonName, 'ca.srl')
         ]);
 
-        // Save commonName and file ObjectIds to MongoDB
-        const ca = new CertificateAuthority({
-            commonName,
-            certificate: new ObjectId(crtFileId),
-            key: new ObjectId(keyFileId),
-            srl: new ObjectId(srlFileId)
+        const newCA = new CertificateAuthority({
+            commonName: commonName,
+            certificate: crtFileId, // Use the ObjectId returned by GridFS
+            key: keyFileId, // Use the ObjectId returned by GridFS
+            srl: srlFileId, // Use the ObjectId returned by GridFS
+            publicKey: publickey // Assign the publicKey obtained from generateRootCertificate
         });
 
-        await ca.save();
-        console.log('Certificate Authority saved to database.');
-
+        await newCA.save();
         res.status(200).send('Certificate Authority created successfully');
     } catch (error) {
         console.error(error);
@@ -187,12 +231,30 @@ router.post('/add', async (req, res) => {
     }
 });
 
-// Route to download a file from GridFS
+
+
+
+// Ensure certDir exists
+if (!fs.existsSync(certDir)) {
+    fs.mkdirSync(certDir);
+}
+
+// Route to list all Certificate Authorities
+router.get('/list', async (req, res) => {
+    try {
+        const cas = await CertificateAuthority.find();
+        res.status(200).json(cas);
+    } catch (error) {
+        console.error('Error fetching Certificate Authorities', error);
+        res.status(500).send('Error fetching Certificate Authorities');
+    }
+});
+
+// Route to download a CA file
 router.get('/file/:id', async (req, res) => {
     try {
         const caId = req.params.id;
-        
-        // Find the CA metadata
+
         const ca = await CertificateAuthority.findById(caId);
         if (!ca) {
             return res.status(404).send('Certificate Authority not found');
@@ -200,7 +262,6 @@ router.get('/file/:id', async (req, res) => {
 
         const bucket = new GridFSBucket(mongoose.connection.db, { bucketName: 'ca_files' });
 
-        // Example: Downloading the certificate file
         const downloadStream = bucket.openDownloadStream(ca.certificate);
 
         res.setHeader('Content-Type', 'application/octet-stream');
@@ -211,10 +272,89 @@ router.get('/file/:id', async (req, res) => {
                 console.error(`Error downloading file: ${error}`);
                 res.status(500).send(`Error downloading file: ${error}`);
             });
+
     } catch (error) {
         console.error(error);
         res.status(500).send('Error downloading file');
     }
 });
 
-module.exports = router;
+router.post('/issue', async (req, res) => {
+    const { commonName, caId, username, csrId, country, organization, subscriptionDays, publicKey } = req.body;
+
+    if (!commonName || !caId || !username || !csrId || !country || !organization || !publicKey) {
+        return res.status(400).json({ message: 'Missing required fields' });
+    }
+
+    try {
+        const ca = await CertificateAuthority.findById(caId);
+        if (!ca) {
+            return res.status(404).send('Certificate Authority not found');
+        }
+
+        const bucket = new GridFSBucket(mongoose.connection.db, { bucketName: 'ca_files' });
+
+        const caKeyFileId = ca.key;
+        const caCrtFileId = ca.certificate;
+
+        const caKeyPath = path.join(certDir, `${caId}_ca.key`);
+        const caCrtPath = path.join(certDir, `${caId}_ca.crt`);
+
+        console.log(`Downloading CA key to ${caKeyPath}`);
+        await downloadFileFromGridFS(bucket, caKeyFileId, fs.createWriteStream(caKeyPath));
+        console.log(`Downloading CA certificate to ${caCrtPath}`);
+        await downloadFileFromGridFS(bucket, caCrtFileId, fs.createWriteStream(caCrtPath));
+
+        const csrPath = path.join(certDir, `${commonName}.csr`);
+        const certPath = path.join(certDir, `${username}.crt`); // Change to username
+        const countryCodes = {
+            "United Kingdom": "UK",
+            "India": "IN",
+            "Canada": "CA",
+            "United States": "US",
+            "Australia": "AU",
+            // Add more countries as needed
+        };
+        const countryCode = countryCodes[country] || country; // Default to original country if not found in mapping
+
+        const cmdCreateCSR = `openssl req -new -newkey rsa:2048 -nodes -keyout ${path.join(certDir, `${commonName}.key`)} -out ${csrPath} -subj "/C=${countryCode}/ST=State/L=Locality/O=${organization}/CN=${commonName}"`;
+        await executeCommand(cmdCreateCSR);
+
+        const cmdSignCSR = `openssl x509 -req -in ${csrPath} -CA ${caCrtPath} -CAkey ${caKeyPath} -CAcreateserial -out ${certPath} -days ${subscriptionDays}`;
+        await executeCommand(cmdSignCSR);
+        console.log(`Checking existence of file: ${certPath}`);
+
+        if (!fs.existsSync(certPath)) {
+            throw new Error(`File not found: ${certPath}`);
+        }
+
+        const issuedCertFilename = `${username}.crt`;
+        const issuedCertFileId = await uploadFileToGridFS2(bucket, issuedCertFilename, certPath);
+
+        const dateAuthorized = new Date();
+        const expiryDate = new Date(dateAuthorized);
+        expiryDate.setDate(expiryDate.getDate() + subscriptionDays);
+
+        const certificate = new Certificate({
+            commonName,
+            certificate: issuedCertFileId,
+            issuedBy: caId,
+            ca: caId,
+            username,
+            csrId,
+            country,
+            subscriptionDays,
+            dateAuthorized,
+            expiryDate,
+            publicKey
+        });
+
+        await certificate.save();
+
+        res.status(200).send('Certificate issued successfully');
+    } catch (error) {
+        console.error(error);
+        res.status(500).send('Error issuing certificate');
+    }
+});
+module.exports=router;
